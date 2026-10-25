@@ -1,0 +1,8 @@
+node_modules/
+evidence/
+build-info.json
+sbom.cdx.json
+sbom.spdx.json
+*.tgz
+*.log
+.npmrc

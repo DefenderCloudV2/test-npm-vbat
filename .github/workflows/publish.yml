@@ -1,0 +1,117 @@
+name: Publish and inspect registry metadata
+
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "npmjs/both require npm scope ownership and trusted publishing or NPM_TOKEN"
+        type: choice
+        options:
+          - github
+          - npmjs
+          - both
+        default: github
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: package-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - name: Install and test
+        run: |
+          npm ci --ignore-scripts
+          npm test
+          npm start -- registry explorer
+      - name: Build SBOMs and pack once
+        id: pack
+        run: |
+          mkdir -p evidence
+          npm run prepare:package
+          npm pack --ignore-scripts --json --pack-destination=evidence > evidence/pack.json
+          echo "tarball=evidence/$(node -p "require('./evidence/pack.json')[0].filename")" >> "$GITHUB_OUTPUT"
+          cp build-info.json sbom.cdx.json sbom.spdx.json evidence/
+      - name: Attest tarball build provenance (GitHub, not npm registry provenance)
+        id: provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        with:
+          subject-path: ${{ steps.pack.outputs.tarball }}
+      - name: Attest production SBOM
+        id: sbom
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6
+        with:
+          subject-path: ${{ steps.pack.outputs.tarball }}
+          sbom-path: sbom.cdx.json
+      - name: Save attestation bundles
+        env:
+          PROVENANCE_BUNDLE: ${{ steps.provenance.outputs.bundle-path }}
+          SBOM_BUNDLE: ${{ steps.sbom.outputs.bundle-path }}
+        run: |
+          cp "$PROVENANCE_BUNDLE" evidence/github-provenance.bundle.json
+          cp "$SBOM_BUNDLE" evidence/github-sbom.bundle.json
+      - name: Configure GitHub Packages
+        if: inputs.target == 'github' || inputs.target == 'both'
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: "24"
+          registry-url: https://npm.pkg.github.com
+          scope: "@defendercloudv2"
+          package-manager-cache: false
+      - name: Publish to GitHub Packages
+        if: inputs.target == 'github' || inputs.target == 'both'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TARBALL: ${{ steps.pack.outputs.tarball }}
+        run: npm publish "$TARBALL" --ignore-scripts --registry=https://npm.pkg.github.com --provenance=false
+      - name: Inspect GitHub registry and package visibility
+        if: inputs.target == 'github' || inputs.target == 'both'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          npm run inspect:registry -- github
+          gh api /orgs/DefenderCloudV2/packages/npm/test-npm-vbat > evidence/github/package.json
+      - name: Configure npmjs
+        if: inputs.target == 'npmjs' || inputs.target == 'both'
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: "24"
+          registry-url: https://registry.npmjs.org
+          scope: "@defendercloudv2"
+          package-manager-cache: false
+      - name: Publish to npmjs with native provenance
+        if: inputs.target == 'npmjs' || inputs.target == 'both'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          TARBALL: ${{ steps.pack.outputs.tarball }}
+        run: npm publish "$TARBALL" --ignore-scripts --registry=https://registry.npmjs.org --access=public --provenance
+      - name: Inspect npmjs registry
+        if: inputs.target == 'npmjs' || inputs.target == 'both'
+        run: npm run inspect:registry -- npmjs
+      - name: Upload evidence even when a later step fails
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: registry-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: evidence/
+          if-no-files-found: error
+          retention-days: 30
