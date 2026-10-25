@@ -34,6 +34,7 @@ test('publishing is manual, registries are explicit, and actions are pinned', ()
     if (step.uses) assert.match(step.uses, /@[a-f0-9]{40}$/);
   }
   const commands = workflow.jobs.publish.steps.map(step => step.run || '').join('\n');
+  assert.match(commands, /tarball=\.\/evidence\//);
   assert.match(commands, /--registry=https:\/\/npm\.pkg\.github\.com --provenance=false/);
   assert.match(commands, /--registry=https:\/\/registry\.npmjs\.org --access=public --provenance/);
 });

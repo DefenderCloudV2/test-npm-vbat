@@ -48,7 +48,7 @@ jobs:
           mkdir -p evidence
           npm run prepare:package
           npm pack --ignore-scripts --json --pack-destination=evidence > evidence/pack.json
-          echo "tarball=evidence/$(node -p "require('./evidence/pack.json')[0].filename")" >> "$GITHUB_OUTPUT"
+          echo "tarball=./evidence/$(node -p "require('./evidence/pack.json')[0].filename")" >> "$GITHUB_OUTPUT"
           cp build-info.json sbom.cdx.json sbom.spdx.json evidence/
       - name: Attest tarball build provenance (GitHub, not npm registry provenance)
         id: provenance
@@ -109,7 +109,7 @@ jobs:
         run: npm run inspect:registry -- npmjs
       - name: Upload evidence even when a later step fails
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f
         with:
           name: registry-evidence-${{ github.run_id }}-${{ github.run_attempt }}
           path: evidence/
