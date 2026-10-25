@@ -90,4 +90,5 @@ file is useful for correlation but does not substitute for signature validation.
 The captured metadata reports `gitHead` as `null` if the registry does not expose
 it; publishing a prepacked tarball need not populate this optional field.
 
-See [REPORT.md](REPORT.md) for observed results and unresolved setup.
+See the [experiment report](https://github.com/DefenderCloudV2/test-npm-vbat/blob/main/REPORT.md)
+for observed results and unresolved setup.
